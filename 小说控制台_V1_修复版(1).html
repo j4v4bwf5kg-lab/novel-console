@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小说控制台 V1｜心跳预判</title>
+<style>
+:root{--bg:#f5f5f2;--panel:#fff;--text:#242421;--muted:#77756e;--line:#deddd6;--accent:#51483e;--soft:#eeeae4;--warn:#8b5f38;--ok:#55715b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+button,input,textarea,select{font:inherit}button{cursor:pointer;border:1px solid var(--line);background:white;border-radius:8px;padding:8px 12px}
+button:hover{background:#f0efeb}.app{display:flex;min-height:100vh}.side{width:230px;background:#292722;color:#eee9df;padding:22px 14px;position:sticky;top:0;height:100vh}
+.logo{font-weight:700;font-size:19px;margin:0 8px 4px}.sub{font-size:11px;color:#aaa49a;margin:0 8px 22px}
+.nav button{display:block;width:100%;text-align:left;background:transparent;color:#cfc8bd;border:0;margin:3px 0}.nav button.active,.nav button:hover{background:#403b34;color:#fff}
+.main{flex:1;padding:28px;max-width:1500px;margin:auto}.top{display:flex;justify-content:space-between;gap:15px;align-items:flex-start;margin-bottom:22px}h1{margin:0 0 6px;font-size:27px}.muted{color:var(--muted);font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 1px 2px #00000005}.metric b{font-size:25px;display:block;margin-top:8px}.metric small{color:var(--muted)}
+.section{margin-top:20px}.section h2{font-size:17px;margin:0 0 10px}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.progress{height:8px;background:#e8e6df;border-radius:99px;overflow:hidden}.progress>i{display:block;height:100%;background:var(--accent)}
+.todo{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid #eee}.todo:last-child{border:0}.todo input{width:17px;height:17px}.done{text-decoration:line-through;color:#929087}
+.badges{display:flex;gap:6px;flex-wrap:wrap}.badge{font-size:11px;padding:4px 7px;border-radius:99px;background:var(--soft);color:#5f584f}.badge.warn{background:#f1e5d8;color:var(--warn)}.badge.ok{background:#e3ebe4;color:var(--ok)}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:12px;vertical-align:top}th{background:#f0eee9;font-weight:650}tr:last-child td{border-bottom:0}
+input,textarea,select{border:1px solid var(--line);border-radius:7px;padding:7px;background:#fff;color:var(--text)}textarea{min-height:70px;width:100%;resize:vertical}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.toolbar input{min-width:210px}
+.tabs{display:flex;gap:7px;overflow:auto;margin-bottom:14px}.tabs button.sel{background:#403b34;color:#fff;border-color:#403b34}
+.cardlist{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.resource h3{margin:0 0 8px;font-size:16px}.resource p{font-size:12px;line-height:1.55;margin:7px 0}
+.level{display:inline-block;font-size:11px;border:1px solid var(--line);padding:3px 6px;border-radius:6px}.level.l1{background:#f1f0eb}.level.l2{background:#eeeae4}.level.l3{background:#eee8df}.level.l4{background:#ece3d9}.level.l5{background:#e7ddd1}
+details{border:1px solid var(--line);border-radius:9px;background:#fff;padding:9px 11px;margin:7px 0}summary{cursor:pointer;font-weight:650;font-size:13px}
+.empty{padding:35px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px}
+footer{margin-top:28px;color:#9a978f;font-size:11px}
+@media(max-width:900px){.side{width:70px;padding:15px 8px}.logo,.sub{display:none}.nav button{font-size:0;text-align:center}.nav button::first-letter{font-size:18px}.main{padding:18px}.grid,.two,.cardlist{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.grid,.two,.cardlist{grid-template-columns:1fr}.main{padding:13px}.top{display:block}.actions{margin-top:12px}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <div class="logo">小说控制台</div><div class="sub">V1 · 30万字长篇实验版</div>
+  <div class="nav">
+    <button data-page="dashboard">⌂ 总控台</button>
+    <button data-page="todo">☑ 阶段 Todo</button>
+    <button data-page="cards">▣ 牌库</button>
+    <button data-page="stats">▤ 牌的统计</button>
+    <button data-page="map">◇ 信息地图</button>
+    <button data-page="characters">♧ 人物关系</button>
+    <button data-page="chapter">✎ 章节卡</button>
+    <button data-page="review">↻ 章节复盘</button>
+  </div>
+</aside>
+<main class="main" id="main"></main>
+</div>
+<script>
+const KEY='novel_console_v1';
+const memoryStore = {};
+const storage = {
+  ok: true,
+  get(key){
+    try { return localStorage.getItem(key); }
+    catch(e){ this.ok=false; return memoryStore[key] ?? null; }
+  },
+  set(key,value){
+    try { localStorage.setItem(key,value); }
+    catch(e){ this.ok=false; memoryStore[key]=value; }
+  },
+  remove(key){
+    try { localStorage.removeItem(key); }
+    catch(e){ delete memoryStore[key]; }
+  }
+};
+const stages=[
+{name:'0–3万｜让读者想继续',goal:'相遇、钩子、专业能力、初始吸引；先让关系有继续阅读的理由',tasks:['完成男女主首次正式接触','建立姜辞与当前身份与搜救能力','让荼沫的主动靠近成立','埋下身份/过去的可关联信息','至少形成一次明确的关系变化','章末持续留下下一章问题']},
+{name:'3–8万｜让读者喜欢他们在一起',goal:'建立关系与共同生活/任务；让姜辞与开始主动给予特殊对待',tasks:['形成稳定接触场景','出现至少一次姜辞与的主动关心','出现第一次清晰心动/暧昧变化','小亮只推进到允许的信息层级','让读者开始期待两人的相处','阶段末让荼沫成为姜辞与眼中的特殊人物']},
+{name:'8–14万｜让他们真正认识彼此',goal:'私人生活、性格碰撞、价值观与情绪交换；身份怀疑开始变得有重量',tasks:['增加非任务场景的相处','至少一次价值观/性格碰撞','推进姜辞与对荼沫身份的观察','让荼沫开始喜欢现在的姜辞与','补足一条人物内在欲望/恐惧','形成新的关系节点']},
+{name:'14–20万｜过去进入爱情',goal:'小月亮身份成为关系障碍；小亮过去逐步进入现在',tasks:['身份压力进入关系','小亮线至少完成一次信息升级','姜辞与过去的关键部分露出','荼沫开始质疑自己爱的是谁','发生一次真正能伤到关系的冲突','让两人关系达到“真相会造成影响”的程度']},
+{name:'20–25万｜攻守互换',goal:'姜辞与确认身份但荼沫不知道；主动权转移',tasks:['完成姜辞与对身份的确认','保持信息差：荼沫不知道他知道','姜辞与开始主动试探/制造接触','让他逐渐追问“真正的荼沫”','形成一次明显的攻守反转','关系主动权发生可感知变化']},
+{name:'25–28万｜真相进入关系',goal:'身份秘密真正爆开；处理小月亮的意图与两人的真实认识',tasks:['身份秘密正式揭开','解释荼沫借身份的原因','解释小月亮留下的真正意图','处理姜辞与为什么没有提前拆穿','处理小亮对姜辞与的影响','让第三人的身份不再是两人理解彼此的必要条件']},
+{name:'28–30万+｜真正的爱与收束',goal:'过去与现在完成分离；荼沫作为荼沫被选择',tasks:['荼沫不再需要小月亮身份','姜辞与明确选择现在的荼沫','完成过去/现在的情感闭环','回收核心物件或关键意象','完成两人关系最终确认','HE收束']}
+];
+const resources=[
+{id:'R01',name:'小月亮身份',type:'身份/情感',level:1,appear:0,first:'',latest:'',desc:'可先出现人、记忆、物件与关联；暂不解释她完整计划。',next:'先做关联，再逐步进入怀疑/确认',forbid:'早期直接揭底她为什么这样安排'},
+{id:'R02',name:'小亮',type:'过去/人物',level:1,appear:0,first:'',latest:'',desc:'可以出现名字、关系、姜辞与异常反应；暂不解释死亡因果。',next:'先让读者知道“他很重要”，再升级到姜辞与的自责',forbid:'早期一次性解释死亡与全部心理原因'},
+{id:'R03',name:'兔子徽章',type:'物件/伏笔',level:1,appear:0,first:'',latest:'',desc:'第一层只承担“珍惜的物件/记忆入口”。',next:'关联→怀疑→身份推进→情感回收',forbid:'第一次出现就说明全部来源与意义'},
+{id:'R04',name:'姜辞与退役',type:'人物过去',level:1,appear:0,first:'',latest:'',desc:'现在身份可以直接存在；离开体制的原因暂缓。',next:'让读者先问“为什么离开”，再给出过去线索',forbid:'首次介绍时把小亮死亡与退役因果全讲完'},
+{id:'R05',name:'民间搜救队',type:'场景/职业',level:1,appear:0,first:'',latest:'',desc:'当前生活与任务的核心资源，可持续制造共同场景。',next:'从工作场景→共同任务→私人接触',forbid:'让搜救任务长期只承担“推进剧情”而没有关系变化'},
+{id:'R06',name:'荼沫主动靠近',type:'人物欲望',level:1,appear:0,first:'',latest:'',desc:'她认为自己喜欢姜辞与，是前期行动发动机。',next:'从投射→接触→碰撞→修正',forbid:'长期只让她单向追，不发生认知改变'},
+{id:'R07',name:'姜辞与观察',type:'爱情/信息差',level:1,appear:0,first:'',latest:'',desc:'他记得过去，却不急着拆穿；可以通过细节观察、照顾、试探出现。',next:'怀疑→确认→主动设局',forbid:'过早直接告白式摊牌'},
+{id:'R08',name:'小亮死亡后的退役',type:'过去/人物弧',level:1,appear:0,first:'',latest:'',desc:'这是姜辞与现在身份背后的重要缺口；先表现“离开过”，后解释原因。',next:'可关联→可怀疑→可确认→揭底',forbid:'早期直接把全部真相解释完'},
+{id:'R09',name:'小月亮的双向意图',type:'情感真相',level:1,appear:0,first:'',latest:'',desc:'她既想让荼沫活在现在，也希望荼沫能帮助姜辞与走出过去。',next:'后期进入真相层',forbid:'前期把她写成纯粹服务爱情的工具人'},
+];
+let state;
+try {
+  state = JSON.parse(storage.get(KEY) || 'null') || {page:'dashboard',stage:0,todos:{},chapters:[],logs:[]};
+} catch(e) {
+  state = {page:'dashboard',stage:0,todos:{},chapters:[],logs:[]};
+}
+function save(){storage.set(KEY,JSON.stringify(state))}
+function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function pct(){let total=stages.reduce((a,s)=>a+s.tasks.length,0),done=Object.values(state.todos).filter(Boolean).length;return Math.round(done/total*100)}
+function nav(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===state.page))}
+function render(){
+try {
+nav(); const m=document.getElementById('main');
+const titles={dashboard:['总控台','先看现在这本书需要什么，不要一次把整本书想完。'],todo:['阶段 Todo','每个阶段只检查当前阶段真正需要完成的事情。'],cards:['牌库','每一张牌都有“能出现到哪里”的权限。'],stats:['牌的统计','记录每张牌出现在哪里、出现几次、怎么出现、信息消耗到哪一层。'],map:['信息地图','同一张牌可以重复出现，但最好每次都改变读者对它的认识。'],characters:['人物关系','控制“我知道什么 / 我以为你知道什么 / 你真正知道什么”。'],chapter:['章节卡','写这一章前，先决定发动机、可调用牌与信息权限。'],review:['章节复盘','写完再检查：实际用了什么、有没有提前透底、这一章到底改变了什么。']};
+let [title,desc]=titles[state.page];
+m.innerHTML=`<div class="top"><div><h1>${title}</h1><div class="muted">${desc}</div></div><div class="actions"><button onclick="exportData()">导出数据</button><button onclick="resetData()">重置V1</button></div></div>${pageContent(state.page)}<footer>本版本数据会优先保存在当前浏览器；如果浏览器禁止本地存储，仍可在当前页面使用。建议定期导出 JSON 备份。</footer>`;
+} catch(err) {
+  document.getElementById('main').innerHTML = '<div class="card"><h2>控制台启动失败</h2><p>页面本身已经加载，但脚本启动时遇到了问题。</p><p class="muted">'+esc(err && err.message ? err.message : String(err))+'</p><button onclick="location.reload()">重新加载</button></div>';
+}
+}
+function pageContent(p){
+if(p==='dashboard')return dashboard();
+if(p==='todo')return todo();
+if(p==='cards')return cards();
+if(p==='stats')return stats();
+if(p==='map')return map();
+if(p==='characters')return characters();
+if(p==='chapter')return chapter();
+if(p==='review')return review();
+}
+function dashboard(){
+let current=stages[state.stage], done=current.tasks.filter((_,i)=>state.todos[`${state.stage}-${i}`]).length;
+return `<div class="grid">
+<div class="card metric"><small>当前阶段</small><b>${state.stage+1}/7</b><span>${esc(current.name.split('｜')[0])}</span></div>
+<div class="card metric"><small>Todo完成度</small><b>${pct()}%</b><span>全书阶段任务</span></div>
+<div class="card metric"><small>当前阶段</small><b>${done}/${current.tasks.length}</b><span>已完成</span></div>
+<div class="card metric"><small>已记录章节</small><b>${state.chapters.length}</b><span>实际写作记录</span></div></div>
+<div class="section two"><div class="card"><h2>当前阶段核心任务</h2><p>${esc(current.goal)}</p><div class="progress"><i style="width:${done/current.tasks.length*100}%"></i></div><p class="muted">${done}/${current.tasks.length} 项</p></div>
+<div class="card"><h2>当前最重要的信息规则</h2><div class="badges"><span class="badge">① 可出现</span><span class="badge">② 可关联</span><span class="badge">③ 可怀疑</span><span class="badge">④ 可确认</span><span class="badge">⑤ 可揭底</span></div><p>不是“这张牌能不能出现”，而是：<b>它现在最多能解释到哪。</b></p></div></div>
+<div class="section"><h2>本阶段 Todo</h2><div class="card">${current.tasks.map((t,i)=>todoRow(t,`${state.stage}-${i}`)).join('')}</div></div>`;
+}
+function todoRow(t,key){let d=!!state.todos[key];return `<label class="todo ${d?'done':''}"><input type="checkbox" ${d?'checked':''} onchange="toggleTodo('${key}',this.checked)"><span>${esc(t)}</span></label>`}
+function todo(){
+return `<div class="tabs">${stages.map((s,i)=>`<button class="${i===state.stage?'sel':''}" onclick="setStage(${i})">${i+1}. ${esc(s.name.split('｜')[0])}</button>`).join('')}</div>
+<div class="card"><h2>${esc(stages[state.stage].name)}</h2><p>${esc(stages[state.stage].goal)}</p>${stages[state.stage].tasks.map((t,i)=>todoRow(t,`${state.stage}-${i}`)).join('')}</div>
+<div class="section card"><h2>阶段完成判定</h2><p class="muted">不要只看“有没有写到这里”，而看这一阶段的核心阅读体验是否已经成立。</p><div class="badges"><span class="badge">☐ 未使用</span><span class="badge">◐ 已出现</span><span class="badge ok">☑ 已完成</span></div></div>`;
+}
+function cards(){
+return `<div class="toolbar"><input id="cardSearch" placeholder="搜索牌名 / 类型" oninput="filterCards()"><select id="levelFilter" onchange="filterCards()"><option value="">全部权限</option>${[1,2,3,4,5].map(x=>`<option value="${x}">最多到 ${x} 级</option>`).join('')}</select></div>
+<div class="cardlist" id="cardList">${resources.map(cardHtml).join('')}</div>`;
+}
+function cardHtml(r){
+return `<div class="card resource" data-search="${esc((r.name+r.type).toLowerCase())}" data-level="${r.level}"><h3>${esc(r.name)}</h3><div class="badges"><span class="badge">${esc(r.type)}</span><span class="level l${r.level}">当前：${r.level}级</span></div><p>${esc(r.desc)}</p><p><b>下一步：</b>${esc(r.next)}</p><p><b>禁止：</b>${esc(r.forbid)}</p><p class="muted">出现次数：${r.appear}　首次：${r.first||'未记录'}　最近：${r.latest||'未记录'}</p></div>`;
+}
+function stats(){
+return `<div class="card"><h2>牌的生命周期统计</h2><p class="muted">目标不是减少重复，而是避免“重复出现却没有新信息”。</p>
+<table><thead><tr><th>牌</th><th>当前权限</th><th>出现次数</th><th>首次</th><th>最近</th><th>信息消耗</th><th>下一次允许做什么</th></tr></thead><tbody>
+${resources.map(r=>`<tr><td><b>${esc(r.name)}</b><br><span class="muted">${esc(r.type)}</span></td><td><span class="level l${r.level}">${r.level}/5</span></td><td>${r.appear}</td><td>${r.first||'—'}</td><td>${r.latest||'—'}</td><td>${r.level*20}/100</td><td>${esc(r.next)}</td></tr>`).join('')}</tbody></table></div>
+<div class="section card"><h2>出现历史</h2>${state.logs.length?`<table><thead><tr><th>章节</th><th>牌</th><th>出现方式</th><th>谁知道</th><th>读者新增认识</th><th>权限变化</th></tr></thead><tbody>${state.logs.map((l,i)=>`<tr><td>${esc(l.ch)}</td><td>${esc(l.card)}</td><td>${esc(l.mode)}</td><td>${esc(l.who)}</td><td>${esc(l.learn)}</td><td>${esc(l.change)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">还没有记录。写完一章后，到“章节复盘”添加实际使用情况。</div>'}</div>`;
+}
+function map(){
+return `<div class="card"><h2>五级信息权限</h2><table><thead><tr><th>等级</th><th>含义</th><th>写作表现</th></tr></thead><tbody>
+<tr><td>① 可出现</td><td>东西可以被看到</td><td>名字、物件、异常反应、一个事实</td></tr>
+<tr><td>② 可关联</td><td>读者能把两件事连起来</td><td>“这个物件和那段过去可能有关”</td></tr>
+<tr><td>③ 可怀疑</td><td>读者/人物能形成明确猜测</td><td>身份、动机、因果开始有方向</td></tr>
+<tr><td>④ 可确认</td><td>事实可以坐实</td><td>确认“是什么”，但未必解释“为什么”</td></tr>
+<tr><td>⑤ 可揭底</td><td>原因、意义、完整因果进入台面</td><td>过去与现在完成解释</td></tr>
+</tbody></table></div>
+<div class="section card"><h2>当前牌的允许深度</h2>${resources.map(r=>`<details><summary>${esc(r.name)}　—　${r.level}/5</summary><p>${esc(r.desc)}</p><p><b>下一层：</b>${esc(r.next)}</p><p><b>禁止提前：</b>${esc(r.forbid)}</p></details>`).join('')}</div>`;
+}
+function characters(){
+return `<div class="two"><div class="card"><h2>荼沫</h2><p><b>前期发动机：</b>认为自己喜欢姜辞与，并借小月亮身份获得靠近他的理由。</p><p><b>需要变化：</b>投射 → 接触 → 碰撞/修正 → 真正认识 → 真正喜欢。</p><p><b>信息差：</b>她不知道姜辞与记得八年前的她，也不知道他何时确认她的身份。</p></div>
+<div class="card"><h2>姜辞与</h2><p><b>前期发动机：</b>观察、确认、保护自己的边界，同时逐渐被荼沫吸引。</p><p><b>核心秘密：</b>他记得八年前的女孩；后期确认她是谁，但暂时不拆穿。</p><p><b>主动权变化：</b>观察 → 试探 → 设局 → 主动追问真正的荼沫。</p></div></div>
+<div class="section card"><h2>信息差矩阵</h2><table><thead><tr><th>问题</th><th>荼沫</th><th>姜辞与</th><th>读者</th></tr></thead><tbody>
+<tr><td>八年前是谁</td><td>她知道自己是获救者</td><td>他记得那个女孩</td><td>逐步知道</td></tr>
+<tr><td>身份借用</td><td>自己知道</td><td>后期确认</td><td>逐步确认</td></tr>
+<tr><td>姜辞与是否记得她</td><td>不知道</td><td>知道</td><td>先于荼沫获得线索</td></tr>
+<tr><td>小亮的真正过去</td><td>未知/逐步理解</td><td>最深</td><td>逐步释放</td></tr>
+<tr><td>小月亮为什么这样安排</td><td>后期理解</td><td>逐步理解</td><td>后期揭底</td></tr>
+</tbody></table></div>`;
+}
+function chapter(){
+return `<div class="card"><h2>新建章节卡</h2><div class="two">
+<div><label class="muted">章节编号</label><input id="chNum" style="width:100%" placeholder="例：12"></div>
+<div><label class="muted">章节标题</label><input id="chTitle" style="width:100%" placeholder="一句话识别本章"></div>
+</div><p><label class="muted">本章发动机（可多选）</label><br><select id="engine" style="width:100%"><option>场景驱动</option><option>任务驱动</option><option>人物欲望驱动</option><option>内在动机驱动</option><option>爱情线驱动</option><option>信息揭示驱动</option></select></p>
+<div class="two"><div><label class="muted">本章表层事件</label><textarea id="surface" placeholder="这一章表面发生什么？"></textarea></div><div><label class="muted">本章真正改变了什么</label><textarea id="change" placeholder="关系 / 认知 / 信息 / 角色状态，至少有一项发生变化。"></textarea></div></div>
+<p><label class="muted">本章调用的牌（可写多个）</label><input id="usedCards" style="width:100%" placeholder="例：民间搜救队、姜辞与观察、兔子徽章"></p>
+<p><label class="muted">信息权限警报</label></p><div class="badges"><span class="badge warn">只允许出现：可以写，但不能解释</span><span class="badge warn">可关联：可以连线，但不能坐实</span><span class="badge warn">可怀疑：可以让读者猜</span></div>
+<button onclick="addChapter()">保存章节卡</button></div>
+<div class="section">${state.chapters.length?state.chapters.map((c,i)=>`<div class="card" style="margin-bottom:9px"><div class="badges"><span class="badge">${esc(c.num)}</span><span class="badge">${esc(c.engine)}</span></div><h3>${esc(c.title)}</h3><p>${esc(c.surface)}</p><p><b>改变：</b>${esc(c.change)}</p><p class="muted">调用牌：${esc(c.usedCards)}</p></div>`).join(''):'<div class="empty">还没有章节卡。先建立一张，你就可以开始真正写这一章。</div>'}</div>`;
+}
+function review(){
+return `<div class="card"><h2>章节复盘</h2><p class="muted">写完一章后，不评价“写得好不好”，只检查控制：牌有没有透支？人物有没有改变？这一章有没有消耗掉一个信息层级？</p>
+<div class="two"><div><label class="muted">章节</label><input id="rvCh" style="width:100%" placeholder="例：12"></div><div><label class="muted">实际用了哪些牌</label><input id="rvCard" style="width:100%" placeholder="牌名"></div></div>
+<p><label class="muted">出现方式</label><input id="rvMode" style="width:100%" placeholder="人物提及 / 物件出现 / 行动 / 对话 / 任务 / 情绪反应……"></p>
+<div class="two"><div><label class="muted">谁知道</label><textarea id="rvWho"></textarea></div><div><label class="muted">读者新知道了什么</label><textarea id="rvLearn"></textarea></div></div>
+<p><label class="muted">权限变化（例如 ①→②）</label><input id="rvChange" style="width:100%" placeholder="①→②；或“没有升级，但改变了情感功能”"></p>
+<button onclick="addLog()">加入统计</button></div>
+<div class="section card"><h2>复盘检查</h2>${['本章是否至少改变了一件事？','有没有提前解释本来只允许出现/关联的牌？','重复出现的牌是否带来了新信息或新情感？','男女主的关系是否发生了可感知变化？','章末是否产生新的阅读问题？','如果删掉这一章，后文是否会缺少某个必要变化？'].map((x,i)=>todoRow(x,'review-'+i)).join('')}</div>`;
+}
+function toggleTodo(k,v){state.todos[k]=v;save();render()}
+function setStage(i){state.stage=i;save();render()}
+function filterCards(){let q=(document.getElementById('cardSearch').value||'').toLowerCase(),l=document.getElementById('levelFilter').value;document.querySelectorAll('#cardList .resource').forEach(x=>x.style.display=(!q||x.dataset.search.includes(q))&&(!l||x.dataset.level===l)?'':'none')}
+function addChapter(){let c={num:document.getElementById('chNum').value||'未编号',title:document.getElementById('chTitle').value||'未命名章节',engine:document.getElementById('engine').value,surface:document.getElementById('surface').value,change:document.getElementById('change').value,usedCards:document.getElementById('usedCards').value};state.chapters.push(c);save();render()}
+function addLog(){let l={ch:document.getElementById('rvCh').value,card:document.getElementById('rvCard').value,mode:document.getElementById('rvMode').value,who:document.getElementById('rvWho').value,learn:document.getElementById('rvLearn').value,change:document.getElementById('rvChange').value};state.logs.push(l);save();render()}
+function exportData(){let blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='小说控制台-V1-备份.json';a.click();URL.revokeObjectURL(a.href)}
+function resetData(){if(confirm('确定重置本浏览器里的V1数据吗？')){storage.remove(KEY);location.reload()}}
+document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>{state.page=b.dataset.page;save();render()}));
+render();
+</script>
+</body></html>
